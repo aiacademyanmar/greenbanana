@@ -1,0 +1,62 @@
+name: Build Green Banana Offline Android APK
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'app/**'
+      - '*.gradle'
+      - 'gradle.properties'
+      - 'settings.gradle'
+      - '.github/workflows/build-android-apk.yml'
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check complete Android project is uploaded
+        run: |
+          set -euo pipefail
+          test -s settings.gradle
+          test -s build.gradle
+          test -s app/build.gradle
+          test -s app/src/main/AndroidManifest.xml
+          test -s app/src/main/java/asia/aaii/greenbanana/MainActivity.java
+          test -s app/src/main/java/asia/aaii/greenbanana/Site3DView.java
+          test -s app/src/main/assets/site_model.bin
+          test -s app/src/main/assets/guides/Green_Banana_Myanmar_Innovation.pdf
+          ! grep -qi 'android.permission.INTERNET' app/src/main/AndroidManifest.xml
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+      - uses: android-actions/setup-android@v3
+      - name: Install Android SDK 35
+        run: |
+          sdkmanager 'platforms;android-35' 'build-tools;35.0.0' 'platform-tools'
+      - name: Compile debug APK
+        run: gradle --no-daemon --stacktrace :app:assembleDebug
+      - name: Verify and stage APK
+        run: |
+          set -euo pipefail
+          apk=app/build/outputs/apk/debug/app-debug.apk
+          test -s "$apk"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$apk"
+          unzip -t "$apk"
+          unzip -Z1 "$apk" | grep -q '^assets/site_model.bin$'
+          unzip -Z1 "$apk" | grep -q '^assets/guides/Green_Banana_Myanmar_Innovation.pdf$'
+          cp "$apk" Green_Banana_Myanmar_Offline_Native_V1_2-debug.apk
+          sha256sum Green_Banana_Myanmar_Offline_Native_V1_2-debug.apk > SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Green_Banana_Myanmar_Offline_APK_V1_2
+          path: |
+            Green_Banana_Myanmar_Offline_Native_V1_2-debug.apk
+            SHA256SUMS.txt
+          if-no-files-found: error
