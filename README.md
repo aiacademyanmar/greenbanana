@@ -1,23 +1,20 @@
-# Green Banana Myanmar — Offline Native Android APK
+# 🌿 Green Banana Myanmar — Offline Native APK
 
-This repository is intended for the **Green Banana Myanmar 100-Acre Offline Native Android APK**.
+## Single-ZIP APK build
 
-## Required Android source
-Upload the **extracted contents** of the project ZIP (not the ZIP file itself) to the repository root, including:
+**Upload just one file** to this public repository: `Green_Banana_Myanmar_APK_Build_Ready_V1_2.zip` (20.1 MiB).
 
-- `app/build.gradle`
-- `app/src/main/AndroidManifest.xml`
-- `app/src/main/java/asia/aaii/greenbanana/MainActivity.java`
-- `app/src/main/java/asia/aaii/greenbanana/Site3DView.java`
-- `app/src/main/assets/site_model.bin`
-- `app/src/main/assets/guides/Green_Banana_Myanmar_Innovation.pdf`
-- all other `app/src/main/assets/` and `app/src/main/res/` files
-- `build.gradle`, `settings.gradle`, `gradle.properties`, `check_project.py`
+1. Download the project ZIP from the ChatGPT conversation.
+2. Open [GitHub Upload](https://github.com/aiacademyanmar/greenbanana/upload/main).
+3. Drag the **ZIP itself** (no extraction required) into the upload area.
+4. Commit directly to the `main` branch.
+5. Open [GitHub Actions](https://github.com/aiacademyanmar/greenbanana/actions/workflows/build-android-apk.yml) to follow the build.
+6. When the run succeeds, open its **Artifacts** section and download `Green_Banana_Myanmar_Offline_APK_V1_2`; extract the ZIP artifact to obtain the installable `-debug.apk`.
 
-To start the Android build: open **Actions → Build Green Banana Offline Android APK → Run workflow** after committing the complete source to `main`.
+The workflow will unpack the original source ZIP, verify the offline 3D model and PDF, compile Java with Android Gradle Plugin and Java 17, verify the debug APK's signature, then upload the APK.
 
-The GitHub Actions build checks the offline assets, builds a debug Android APK, verifies its signature and packaged files, and uploads it as a build artifact.
+**Build is not considered successful until Actions reports a green check.** If compilation fails, see job logs.
 
-**Do not claim the APK is built until GitHub Actions reports success.** The repository is **public**: any source files you upload will become publicly accessible. Do not upload credentials, keystores, or private materials without authorization.
+**Privacy warning:** This repository is **public**. Anyone can download the uploaded original ZIP, 3D models and app assets. If you do not wish to publish the project, change the repository visibility to Private before uploading.
 
-Build workflow and project setup prepared for the user-provided source.
+The project is a concept demonstration; demo production data is not verified actual monthly output.
