@@ -26,8 +26,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [ -s Green_Banana_Myanmar_APK_Build_Ready_V1_2.zip ]; then
-            echo 'Extracting original Android project ZIP...'
+          if [ -s Green_Banana_Myanmar_APK_Build_Ready_V1_3_PopSound.zip ] || [ -s Green_Banana_Myanmar_APK_Build_Ready_V1_2.zip ]; then
+            echo 'Extracting latest Green Banana Android project ZIP...'
             python3 - <<'PY'
           from pathlib import Path
           from zipfile import ZipFile
