@@ -5,6 +5,7 @@ on:
   push:
     branches: [main]
     paths:
+      - 'GBM_FULL_SOURCE_B64/**'
       - 'Green_Banana_Myanmar_Final_Offline_APK_Source_Optimized_V1_3.zip'
       - 'Green_Banana_Myanmar_APK_Build_Ready_V1_3_PopSound.zip'
       - 'Green_Banana_Myanmar_APK_Build_Ready_V1_2.zip'
@@ -27,6 +28,23 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          if [ -d GBM_FULL_SOURCE_B64 ]; then
+            echo 'Reassembling uploaded full offline native source...'
+            python3 - <<'PY'
+          from pathlib import Path
+          import base64, hashlib
+          parts = sorted(Path('GBM_FULL_SOURCE_B64').glob('part_*.txt'))
+          if len(parts) != 32:
+              raise RuntimeError(f'Expected 32 source transport parts; got {len(parts)}')
+          text = ''.join(p.read_text(encoding='ascii').strip() for p in parts)
+          raw = base64.b64decode(text, validate=True)
+          expected = '902a4ca3c18c6cf4cbff9ae135b299fc9eefcc2c6885b6fb37267f0b229c70ee'
+          actual = hashlib.sha256(raw).hexdigest()
+          assert actual == expected, f'Incorrect source ZIP SHA256: {actual}'
+          Path('Green_Banana_Myanmar_Final_Offline_APK_Source_Optimized_V1_3.zip').write_bytes(raw)
+          print('Reconstructed full-source ZIP', len(raw), 'bytes; SHA256 PASS')
+          PY
+          fi
           if [ -s Green_Banana_Myanmar_Final_Offline_APK_Source_Optimized_V1_3.zip ] || [ -s Green_Banana_Myanmar_APK_Build_Ready_V1_3_PopSound.zip ] || [ -s Green_Banana_Myanmar_APK_Build_Ready_V1_2.zip ]; then
             echo 'Extracting latest Green Banana Android project ZIP...'
             python3 - <<'PY'
