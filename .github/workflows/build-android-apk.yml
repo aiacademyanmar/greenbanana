@@ -70,6 +70,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # GitHub text-content API may strip the final newline of an uploaded diff.
+          printf '\n' >> .github/patches/GBM_V1_4_3D_Fix.patch
           git apply --check .github/patches/GBM_V1_4_3D_Fix.patch
           git apply .github/patches/GBM_V1_4_3D_Fix.patch
           grep -q 'setInterior(boolean enabled)' app/src/main/java/asia/aaii/greenbanana/Site3DView.java
