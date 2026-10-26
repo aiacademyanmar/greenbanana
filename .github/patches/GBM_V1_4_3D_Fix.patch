@@ -1,0 +1,347 @@
+--- a/app/src/main/java/asia/aaii/greenbanana/Site3DView.java
++++ b/app/src/main/java/asia/aaii/greenbanana/Site3DView.java
+@@ -5,6 +5,7 @@
+ import android.opengl.GLSurfaceView;
+ import android.opengl.Matrix;
+ import android.view.MotionEvent;
++import android.view.GestureDetector;
+ import android.view.ScaleGestureDetector;
+ import java.io.DataInputStream;
+ import java.io.IOException;
+@@ -22,8 +23,11 @@
+ public class Site3DView extends GLSurfaceView {
+     private final Scene renderer;
+     private final ScaleGestureDetector scale;
++    private final GestureDetector gestures;
+     private float lastX,lastY;
+     private boolean dragging;
++    private boolean panning;
++    private float lastMidX,lastMidY;
+ 
+     public Site3DView(Context context) {
+         super(context);
+@@ -31,24 +35,59 @@
+         setEGLConfigChooser(8,8,8,8,24,0);
+         renderer=new Scene(context);
+         setRenderer(renderer);
+-        setRenderMode(GLSurfaceView.RENDERMODE_CONTINUOUSLY);
++        // Draw when input/state changes to reduce battery and heat during long offline tours.
++        setRenderMode(GLSurfaceView.RENDERMODE_WHEN_DIRTY);
+         scale=new ScaleGestureDetector(context, new ScaleGestureDetector.SimpleOnScaleGestureListener(){
+-            @Override public boolean onScale(ScaleGestureDetector detector){ renderer.zoom(detector.getScaleFactor()); return true; }
++            @Override public boolean onScale(ScaleGestureDetector detector){ renderer.zoom(detector.getScaleFactor()); requestRender(); return true; }
+         });
+-    }
+-    public void focus(String zone){renderer.focus(zone);}
+-    public void setCameraMode(String mode){renderer.cameraMode(mode);}
+-    public void setInterior(boolean yes){renderer.onlyInteriors=yes;}
++        gestures=new GestureDetector(context,new GestureDetector.SimpleOnGestureListener(){
++            @Override public boolean onDown(MotionEvent e){return true;}
++            @Override public boolean onDoubleTap(MotionEvent e){zoomIn();return true;}
++        });
++    }
++    public void focus(String zone){renderer.focus(zone);requestRender();}
++    public void setCameraMode(String mode){renderer.cameraMode(mode);requestRender();}
++    public void setInterior(boolean yes){renderer.setInterior(yes);requestRender();}
++    public boolean isInterior(){return renderer.onlyInteriors;}
++    public boolean isModelReady(){return renderer.loaded;}
++    public String getModelError(){return renderer.loadError;}
++    public void zoomIn(){renderer.zoom(1.65f);requestRender();}
++    public void zoomOut(){renderer.zoom(1f/1.65f);requestRender();}
++    public void resetView(){renderer.focus("SITE");requestRender();}
++    public void pan(float dx,float dy){renderer.pan(dx,dy);requestRender();}
+     @Override public boolean onTouchEvent(MotionEvent ev){
++        gestures.onTouchEvent(ev);
+         scale.onTouchEvent(ev);
+-        if(ev.getActionMasked()==MotionEvent.ACTION_DOWN){lastX=ev.getX();lastY=ev.getY();dragging=true;return true;}
+-        if(ev.getActionMasked()==MotionEvent.ACTION_MOVE){
+-            if(dragging && !scale.isInProgress() && ev.getPointerCount()==1){
+-                float dx=ev.getX()-lastX,dy=ev.getY()-lastY;renderer.orbit(dx,dy);
++        int action=ev.getActionMasked();
++        if(action==MotionEvent.ACTION_DOWN){
++            lastX=ev.getX();lastY=ev.getY();dragging=true;panning=false;return true;
++        }
++        if(action==MotionEvent.ACTION_POINTER_DOWN && ev.getPointerCount()>=2){
++            lastMidX=(ev.getX(0)+ev.getX(1))/2f;
++            lastMidY=(ev.getY(0)+ev.getY(1))/2f;
++            panning=true;return true;
++        }
++        if(action==MotionEvent.ACTION_MOVE){
++            if(ev.getPointerCount()>=2){
++                float x=(ev.getX(0)+ev.getX(1))/2f,y=(ev.getY(0)+ev.getY(1))/2f;
++                if(panning){renderer.pan(x-lastMidX,y-lastMidY);requestRender();}
++                lastMidX=x;lastMidY=y;
++            } else if(dragging&&!scale.isInProgress()&&!panning){
++                float dx=ev.getX()-lastX,dy=ev.getY()-lastY;
++                renderer.orbit(dx,dy);requestRender();
+             }
+             lastX=ev.getX();lastY=ev.getY();return true;
+         }
+-        if(ev.getActionMasked()==MotionEvent.ACTION_UP||ev.getActionMasked()==MotionEvent.ACTION_CANCEL){dragging=false;performClick();}
++        if(action==MotionEvent.ACTION_POINTER_UP){
++            panning=false;dragging=false;
++            if(ev.getPointerCount()>1){int remaining=ev.getActionIndex()==0?1:0;
++                lastX=ev.getX(remaining);lastY=ev.getY(remaining);}
++            return true;
++        }
++        if(action==MotionEvent.ACTION_UP||action==MotionEvent.ACTION_CANCEL){
++            dragging=false;panning=false;
++            if(action==MotionEvent.ACTION_UP)performClick();
++        }
+         return true;
+     }
+     @Override public boolean performClick(){super.performClick();return true;}
+@@ -64,6 +103,9 @@
+         private final float[] projection=new float[16],view=new float[16],mvp=new float[16];
+         private volatile float yaw=-0.85f,pitch=.91f,distance=990,tx=400,ty=250,tz=0;
+         volatile boolean onlyInteriors=false;
++        volatile boolean loaded=false;
++        volatile String loadError="";
++        private String exteriorZone="SITE";
+         private int width=1,height=1;
+         Scene(Context ctx){app=ctx.getApplicationContext();}
+         private int shader(int type,String code){
+@@ -103,7 +145,7 @@
+             program=GLES20.glCreateProgram();GLES20.glAttachShader(program,vertex);GLES20.glAttachShader(program,fragment);
+             GLES20.glLinkProgram(program);GLES20.glDeleteShader(vertex);GLES20.glDeleteShader(fragment);
+             uMvp=GLES20.glGetUniformLocation(program,"uMVP");aPos=GLES20.glGetAttribLocation(program,"aPosition");aCol=GLES20.glGetAttribLocation(program,"aColor");
+-            try{loadModel();}catch(IOException e){android.util.Log.e("GBM3D","Could not load model",e);return;}
++            try{loadModel();}catch(IOException e){loadError="Offline 3D asset failed to load: "+e.getMessage();android.util.Log.e("GBM3D",loadError,e);return;}
+             for(Chunk ch:chunks){
+                 int[] ids=new int[2];GLES20.glGenBuffers(2,ids,0);ch.vbo=ids[0];ch.ibo=ids[1];
+                 GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER,ch.vbo);GLES20.glBufferData(GLES20.GL_ARRAY_BUFFER,ch.vertices.capacity(),ch.vertices,GLES20.GL_STATIC_DRAW);
+@@ -111,6 +153,7 @@
+                 ch.vertices=null;ch.indices=null; // release Java heap after GPU upload
+             }
+             GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER,0);GLES20.glBindBuffer(GLES20.GL_ELEMENT_ARRAY_BUFFER,0);
++            loaded=true;
+         }
+         @Override public void onSurfaceChanged(GL10 unused,int w,int h){width=Math.max(w,1);height=Math.max(h,1);GLES20.glViewport(0,0,width,height);}
+         @Override public void onDrawFrame(GL10 unused){
+@@ -118,8 +161,12 @@
+             if(chunks.isEmpty()||program==0)return;
+             float d=distance;
+             // Adaptive clip planes avoid z-fighting seen in the earlier PC WebGL screenshot.
+-            float near=Math.max(.18f,Math.min(90f,d*.038f));float far=Math.max(1900f,d+1600f);
+-            Matrix.perspectiveM(projection,0,48f,(float)width/height,near,far);
++            // Interior geometry is a smaller conceptual floor plan. Constrain the camera
++            // frustum to maximize the 24-bit depth precision and suppress z-fighting.
++            float near=onlyInteriors?Math.max(.045f,Math.min(20f,d*.045f))
++                    :Math.max(.075f,Math.min(90f,d*.045f));
++            float far=onlyInteriors?Math.max(145f,d+130f):Math.max(920f,d+1100f);
++            Matrix.perspectiveM(projection,0,onlyInteriors?58f:48f,(float)width/height,near,far);
+             float cp=(float)Math.cos(pitch),sp=(float)Math.sin(pitch),cy=(float)Math.cos(yaw),sy=(float)Math.sin(yaw);
+             float x=tx+d*cp*cy,y=ty+d*cp*sy,z=tz+d*sp;
+             Matrix.setLookAtM(view,0,x,y,z,tx,ty,tz,0,0,1);
+@@ -136,15 +183,42 @@
+             }
+             GLES20.glDisableVertexAttribArray(aPos);GLES20.glDisableVertexAttribArray(aCol);
+         }
+-        synchronized void orbit(float dx,float dy){ yaw-=dx*.0055f; pitch=clamp(pitch-dy*.0045f,.16f,1.47f); }
+-        synchronized void zoom(float factor){ if(factor>0)distance=clamp(distance/factor,8f,1700f); }
+-        void cameraMode(String mode){
+-            if("Top View".equals(mode)){pitch=1.48f;distance=onlyInteriors?85f:1050f;}
+-            else if("Walk View".equals(mode)){pitch=.25f;distance=onlyInteriors?24f:530f;}
+-            else if("Drone".equals(mode)){pitch=.85f;distance=onlyInteriors?120f:1170f;}
+-        }
+-        void focus(String zone){
++        synchronized void orbit(float dx,float dy){
++            yaw-=dx*.0055f;
++            pitch=clamp(pitch-dy*.0045f,.10f,1.52f);
++        }
++        synchronized void zoom(float factor){
++            if(factor>0)distance=clamp(distance/factor,onlyInteriors?1.8f:2.8f,1800f);
++        }
++        synchronized void pan(float dx,float dy){
++            float scale=Math.max(.012f,distance*.0017f);
++            float sy=(float)Math.sin(yaw),cy=(float)Math.cos(yaw);
++            // Two-finger drag translates the orbit target along the site XY plane.
++            float vx=-dx*scale,vy=dy*scale;
++            tx=clamp(tx+vx*(-sy)+vy*cy,-60f,860f);
++            ty=clamp(ty+vx*cy+vy*sy,-60f,570f);
++            if(onlyInteriors){tx=clamp(tx,368f,432f);ty=clamp(ty,230f,276f);}
++        }
++        synchronized void setInterior(boolean enabled){
++            if(enabled){
++                if(!onlyInteriors){
++                    // Source layer 1 actually occupies x=372.7..427.3,
++                    // y=233.7..272.3, NOT the processing factory's exterior center.
++                    // The old viewer kept looking at (500,80), causing a blank interior.
++                    onlyInteriors=true;
++                    tx=400f;ty=253f;tz=3.8f;distance=46f;pitch=.64f;yaw=-.83f;
++                }
++            } else if(onlyInteriors){focus(exteriorZone);}
++        }
++        synchronized void cameraMode(String mode){
++            if("Top View".equals(mode)){pitch=1.49f;distance=onlyInteriors?54f:1050f;}
++            else if("Walk View".equals(mode)){pitch=.20f;distance=onlyInteriors?15f:95f;}
++            else if("Near View".equals(mode)){pitch=onlyInteriors?.49f:.55f;distance=onlyInteriors?16f:58f;}
++            else if("Drone".equals(mode)){pitch=.85f;distance=onlyInteriors?80f:1170f;}
++        }
++        synchronized void focus(String zone){
+             onlyInteriors=false;
++            exteriorZone=zone;
+             switch(zone){
+                 case "PLANT": tx=335;ty=329;distance=480;break;
+                 case "BLOCK_A":tx=110;ty=417;distance=280;break;
+--- a/app/src/main/java/asia/aaii/greenbanana/MainActivity.java
++++ b/app/src/main/java/asia/aaii/greenbanana/MainActivity.java
+@@ -72,6 +72,7 @@
+     private int screen=0,selectedFacility=4,selectedInterior=0,selectedField=0;private String lang="မြန်မာ";
+     private String filter="All", chartMode="Monthly";private LinearLayout root,content;
+     private Site3DView glView;
++    private boolean large3D=false;
+     private SharedPreferences prefs;
+     private TouchFeedback feedback;
+     private final Handler handler=new Handler(Looper.getMainLooper());
+@@ -79,6 +80,8 @@
+         prefs=getSharedPreferences("offline_secure_v1",MODE_PRIVATE);feedback=new TouchFeedback(this,prefs);ensurePin();showScreen(0);
+         handler.postDelayed(()->{if(screen==0)showScreen(1);},1850);
+     }
++    @Override protected void onPause(){if(glView!=null)glView.onPause();super.onPause();}
++    @Override protected void onResume(){super.onResume();if(glView!=null)glView.onResume();}
+     @Override protected void onDestroy(){handler.removeCallbacksAndMessages(null);if(feedback!=null)feedback.release();super.onDestroy();}
+     private void onTap(View target,View.OnClickListener action){feedback.bind(target,action);}
+     private void clickSound(){feedback.playClick(null);}
+@@ -210,20 +213,96 @@
+         tile(grid,"🏛","Facility\nTour",5);tile(grid,"📊","Reports /\nData",11);tile(grid,"⚙","App\nSettings",12);
+         spacer(b,12);LinearLayout stats=row();stats.setBackground(bg(PALE,12));pad(stats,14,13,10,13);TextView t=text("100 ACRES     •     10 DEVELOPMENT ZONES     •     OFFLINE",11,FOREST,true);stats.addView(t);b.addView(stats);bottomNav(0);
+     }
+-    private void master(){LinearLayout b=startContent("3D Master Plan",true);
+-        headline(b,"Interactive 3D site","Explore 100 Acres","Touch to rotate · Pinch to zoom · Select a field");
+-        LinearLayout modes=row();for(String mode:new String[]{"Top View","Walk View","Drone"}){
+-            Button btn=button(mode,"Top View".equals(mode),()->{if(glView!=null)glView.setCameraMode(mode);});
+-            LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(39),1);p.rightMargin=dp(4);modes.addView(btn,p);}b.addView(modes);spacer(b,8);
+-        FrameLayout frame=new FrameLayout(this);frame.setBackground(bg(PALE,12));glView=new Site3DView(this);frame.addView(glView,new FrameLayout.LayoutParams(-1,-1));
+-        TextView watermark=text("OFFLINE 3D MODEL  •  SOURCE: BLENDER",10,FOREST,true);FrameLayout.LayoutParams wm=new FrameLayout.LayoutParams(-2,dp(31),Gravity.TOP|Gravity.CENTER_HORIZONTAL);wm.topMargin=dp(10);frame.addView(watermark,wm);
+-        TextView instr=text("↔ Rotate  •  Pinch Zoom  •  Select Zone ↓",11,TEXT,true);FrameLayout.LayoutParams in=new FrameLayout.LayoutParams(-2,dp(34),Gravity.BOTTOM|Gravity.CENTER_HORIZONTAL);frame.addView(instr,in);
+-        b.addView(frame,lp(-1,360));spacer(b,10);TextView choose=text("PLANTATION BLOCKS A – F",11,GOLD,true);b.addView(choose);
+-        LinearLayout line=row();for(int i=0;i<6;i++){final char ch=(char)('A'+i);Button bt=button(""+ch,false,()->{if(glView!=null)glView.focus("BLOCK_"+ch);});
+-            LinearLayout.LayoutParams par=new LinearLayout.LayoutParams(0,dp(38),1);par.rightMargin=dp(3);line.addView(bt,par);}b.addView(line);spacer(b,10);
+-        LinearLayout options=row();String[] labels={"🌱 Field","🏭 Factory","▣ Storage","⌂ Staff"};String[] zone={"PLANT","FA","WH","ST"};
+-        for(int i=0;i<4;i++){final int ix=i;Button bt=button(labels[i],false,()->{if(glView!=null)glView.focus(zone[ix]);});LinearLayout.LayoutParams par=new LinearLayout.LayoutParams(0,dp(42),1);par.rightMargin=dp(4);options.addView(bt,par);}b.addView(options);
+-        btn(b,"View Area Details  →",()->showScreen(5));bottomNav(1);
++    private void master(){
++        LinearLayout b=startContent("3D Master Plan",true);
++        headline(b,"OFFLINE OPENGL 3D","Explore 100 Acres","Drag to rotate • Pinch to zoom • Two-finger pan • Double tap for close-up");
++        FrameLayout frame=new FrameLayout(this);
++        frame.setBackground(bg(PALE,12));
++        glView=new Site3DView(this);
++        frame.addView(glView,new FrameLayout.LayoutParams(-1,-1));
++        TextView watermark=text("GREEN BANANA • NATIVE 3D • OFFLINE",10,FOREST,true);
++        FrameLayout.LayoutParams wm=new FrameLayout.LayoutParams(-2,dp(32),Gravity.TOP|Gravity.CENTER_HORIZONTAL);
++        wm.topMargin=dp(8);frame.addView(watermark,wm);
++        TextView instr=text("1 finger: Rotate    2 fingers: Pan / Zoom",11,FOREST,true);
++        instr.setBackground(bg(0xD8EEF3E9,7));pad(instr,9,2,9,2);
++        FrameLayout.LayoutParams in=new FrameLayout.LayoutParams(-2,dp(30),Gravity.BOTTOM|Gravity.CENTER_HORIZONTAL);
++        in.bottomMargin=dp(8);frame.addView(instr,in);
++        b.addView(frame,lp(-1,large3D?565:405));spacer(b,7);
++        final TextView status=text("Mode: EXTERIOR • Full 100-Acre Master Plan",12,FOREST,true);
++        status.setBackground(bg(PALE,8));pad(status,9,8,9,8);b.addView(status);spacer(b,8);
++        LinearLayout zoomControls=row();
++        String[] zoomLabels={"＋ Zoom","－ Zoom","Near","Reset"};
++        for(int i=0;i<zoomLabels.length;i++){
++            final int ix=i;Button control=button(zoomLabels[i],i==2,()->{
++                if(glView==null)return;
++                if(ix==0)glView.zoomIn();
++                else if(ix==1)glView.zoomOut();
++                else if(ix==2)glView.setCameraMode("Near View");
++                else {glView.resetView();status.setText("Mode: EXTERIOR • Reset to full 100-acre site");}
++            });
++            LinearLayout.LayoutParams q=new LinearLayout.LayoutParams(0,dp(44),1);
++            q.setMargins(dp(2),0,dp(2),0);zoomControls.addView(control,q);
++        }
++        b.addView(zoomControls);spacer(b,7);
++        LinearLayout modeControls=row();
++        String[] modeLabels={"Top","Walk","Drone","Bigger"};
++        for(int i=0;i<modeLabels.length;i++){
++            final int ix=i;Button control=button(modeLabels[i],false,()->{
++                if(glView==null)return;
++                if(ix==0)glView.setCameraMode("Top View");
++                if(ix==1)glView.setCameraMode("Walk View");
++                if(ix==2)glView.setCameraMode("Drone");
++                if(ix==3){large3D=!large3D;showScreen(3);}
++            });
++            LinearLayout.LayoutParams q=new LinearLayout.LayoutParams(0,dp(41),1);
++            q.setMargins(dp(2),0,dp(2),0);modeControls.addView(control,q);
++        }
++        b.addView(modeControls);spacer(b,7);
++        LinearLayout interiors=row();
++        Button enter=button("▣  ENTER INTERIOR",true,()->{
++            if(glView!=null){glView.setInterior(true);glView.setCameraMode("Near View");
++                status.setText("Mode: INTERIOR • Source conceptual 3D room model");
++            }
++        });
++        Button exit=button("⌂  EXTERIOR",false,()->{
++            if(glView!=null){glView.setInterior(false);status.setText("Mode: EXTERIOR • Selected facility");}
++        });
++        interiors.addView(enter,new LinearLayout.LayoutParams(0,dp(46),1));
++        LinearLayout.LayoutParams expar=new LinearLayout.LayoutParams(0,dp(46),1);expar.leftMargin=dp(5);
++        interiors.addView(exit,expar);b.addView(interiors);spacer(b,7);
++        Button building=button("▤  Choose Building / Zone  ▾",false,()->{
++            if(glView==null)return;
++            String[] choices=new String[areas.length+1];String[] zoneIds=new String[areaIds.length+1];
++            choices[0]="Entire 100-Acre Site";zoneIds[0]="SITE";
++            for(int i=0;i<areas.length;i++){choices[i+1]=areas[i];zoneIds[i+1]=areaIds[i];}
++            new AlertDialog.Builder(this).setTitle("Navigate Offline 3D Zones")
++                .setItems(choices,(di,index)->{
++                    clickSound();glView.focus(zoneIds[index]);
++                    status.setText("Mode: EXTERIOR • "+choices[index]);
++                }).show();
++        });b.addView(building,lp(-1,45));spacer(b,10);
++        b.addView(text("PLANTATION BLOCKS A–F • Tap to focus",12,GOLD,true));spacer(b,7);
++        LinearLayout line=row();
++        for(int i=0;i<6;i++){
++            final char ch=(char)('A'+i);
++            Button bt=button(""+ch,false,()->{
++                if(glView!=null){glView.focus("BLOCK_"+ch);status.setText("Mode: EXTERIOR • Plantation Block "+ch);}
++            });
++            LinearLayout.LayoutParams par=new LinearLayout.LayoutParams(0,dp(40),1);
++            par.rightMargin=dp(3);line.addView(bt,par);
++        }
++        b.addView(line);spacer(b,10);
++        b.addView(text("3D Interior notice: The original model includes one shared conceptual interior mesh. It is not an individually verified architectural model for every building or room.",12,SUB,false));
++        spacer(b,5);
++        btn(b,"Factory Interior Gallery & Room Names",()->showScreen(7));
++        btn(b,"View All Facility Details",()->showScreen(5));
++        final Site3DView created=glView;
++        handler.postDelayed(()->{
++            if(glView==created && !created.isModelReady() && !created.getModelError().isEmpty()){
++                status.setText("3D LOAD ERROR: "+created.getModelError());
++            }
++        },3300);
++        bottomNav(1);
+     }
+     private void field(){LinearLayout b=startContent("Banana Plantation",true);addPhoto(b,"plantation.jpg",235);spacer(b,14);
+         headline(b,"Model Banana Plantation","Plantation • Block A–F","Source: 100-Acre Master Plan");
+@@ -279,8 +358,15 @@
+         Button prev=button("❮ Previous",false,()->{selectedInterior=(selectedInterior+interiorNames.length-1)%interiorNames.length;showScreen(7);});
+         Button nxt=button("Next ❯",false,()->{selectedInterior=(selectedInterior+1)%interiorNames.length;showScreen(7);});
+         next.addView(prev,new LinearLayout.LayoutParams(0,dp(45),1));next.addView(nxt,new LinearLayout.LayoutParams(0,dp(45),1));b.addView(next);
+-        spacer(b,9);b.addView(text("These are conceptual interior renders. Actual building plans and room dimensions need architectural verification.",12,SUB,false));
+-        btn(b,"Enter 3D Model • Cutaway",()->{showScreen(3);if(glView!=null){glView.focus(interiorZones[selectedInterior]);glView.setInterior(true);glView.setCameraMode("Walk View");}});
++        spacer(b,9);b.addView(text("These are conceptual interior images. The 3D button opens the shared conceptual interior module in the supplied model; individual rooms and building dimensions are not verified architectural plans.",12,SUB,false));
++        btn(b,"Enter 3D Concept Interior • Close View",()->{
++            showScreen(3);
++            if(glView!=null){
++                glView.focus(interiorZones[selectedInterior]);
++                glView.setInterior(true);
++                glView.setCameraMode("Near View");
++            }
++        });
+         bottomNav(1);
+     }
+     private void process(){LinearLayout b=startContent("Production Process",true);headline(b,"WASTE TO WEALTH","Production Process","Source: Green Banana Myanmar Innovation profile");
+--- a/app/build.gradle
++++ b/app/build.gradle
+@@ -9,8 +9,8 @@
+         applicationId 'asia.aaii.greenbanana.offline'
+         minSdk 26
+         targetSdk 34
+-        versionCode 4
+-        versionName '1.3.0'
++        versionCode 5
++        versionName '1.4.0'
+     }
+     buildTypes {
+         release {
