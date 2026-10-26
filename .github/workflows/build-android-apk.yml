@@ -5,6 +5,8 @@ on:
   push:
     branches: [main]
     paths:
+      - '.github/workflows/build-android-apk.yml'
+      - '.github/patches/**'
       - 'GBM_FULL_SOURCE_B64/**'
       - 'Green_Banana_Myanmar_Final_Offline_APK_Source_Optimized_V1_3.zip'
       - 'Green_Banana_Myanmar_APK_Build_Ready_V1_3_PopSound.zip'
