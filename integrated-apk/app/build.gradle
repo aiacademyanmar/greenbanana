@@ -1,0 +1,15 @@
+plugins { id 'com.android.application' }
+android {
+    namespace 'asia.aaii.greenbanana.integrated'
+    compileSdk 35
+    defaultConfig {
+       applicationId 'asia.aaii.greenbanana.offline'
+       minSdk 26
+       targetSdk 34
+       versionCode 5
+       versionName '1.4.0'
+    }
+    compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+    buildTypes { release { minifyEnabled false } }
+    aaptOptions { noCompress 'bin', 'jpg', 'png', 'pdf' }
+}
