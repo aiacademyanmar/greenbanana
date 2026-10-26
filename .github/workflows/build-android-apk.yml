@@ -5,6 +5,7 @@ on:
   push:
     branches: [main]
     paths:
+      - 'Green_Banana_Myanmar_Final_Offline_APK_Source_Optimized_V1_3.zip'
       - 'Green_Banana_Myanmar_APK_Build_Ready_V1_3_PopSound.zip'
       - 'Green_Banana_Myanmar_APK_Build_Ready_V1_2.zip'
       - 'app/**'
@@ -26,12 +27,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [ -s Green_Banana_Myanmar_APK_Build_Ready_V1_3_PopSound.zip ] || [ -s Green_Banana_Myanmar_APK_Build_Ready_V1_2.zip ]; then
+          if [ -s Green_Banana_Myanmar_Final_Offline_APK_Source_Optimized_V1_3.zip ] || [ -s Green_Banana_Myanmar_APK_Build_Ready_V1_3_PopSound.zip ] || [ -s Green_Banana_Myanmar_APK_Build_Ready_V1_2.zip ]; then
             echo 'Extracting latest Green Banana Android project ZIP...'
             python3 - <<'PY'
           from pathlib import Path
           from zipfile import ZipFile
-          zip_path = Path("Green_Banana_Myanmar_APK_Build_Ready_V1_3_PopSound.zip")
+          zip_path = Path("Green_Banana_Myanmar_Final_Offline_APK_Source_Optimized_V1_3.zip")
+          if not zip_path.exists():
+              zip_path = Path("Green_Banana_Myanmar_APK_Build_Ready_V1_3_PopSound.zip")
           if not zip_path.exists():
               zip_path = Path("Green_Banana_Myanmar_APK_Build_Ready_V1_2.zip")
           with ZipFile(zip_path) as archive:
