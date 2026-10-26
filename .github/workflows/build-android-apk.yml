@@ -64,6 +64,15 @@ jobs:
           print("Project ZIP extracted successfully.")
           PY
           fi
+      - name: Apply V1.4 close zoom and conceptual interior camera fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          git apply --check .github/patches/GBM_V1_4_3D_Fix.patch
+          git apply .github/patches/GBM_V1_4_3D_Fix.patch
+          grep -q 'setInterior(boolean enabled)' app/src/main/java/asia/aaii/greenbanana/Site3DView.java
+          grep -q 'ENTER INTERIOR' app/src/main/java/asia/aaii/greenbanana/MainActivity.java
+          grep -q "versionName '1.4.0'" app/build.gradle
       - name: Check native Android source and offline assets
         shell: bash
         run: |
@@ -129,14 +138,14 @@ jobs:
           unzip -t "$APK" | tail -1
           unzip -Z1 "$APK" | grep -q '^assets/site_model.bin$'
           unzip -Z1 "$APK" | grep -q '^assets/guides/Green_Banana_Myanmar_Innovation.pdf$'
-          cp "$APK" Green_Banana_Myanmar_Offline_Native_V1_3_PopSound-debug.apk
-          sha256sum Green_Banana_Myanmar_Offline_Native_V1_3_PopSound-debug.apk > SHA256SUMS.txt
+          cp "$APK" Green_Banana_Myanmar_Offline_3D_Fixed_V1_4-debug.apk
+          sha256sum Green_Banana_Myanmar_Offline_3D_Fixed_V1_4-debug.apk > SHA256SUMS.txt
       - name: Upload installable APK
         uses: actions/upload-artifact@v4
         with:
-          name: Green_Banana_Myanmar_Offline_APK_V1_3_PopSound
+          name: Green_Banana_Myanmar_Offline_3D_Fixed_V1_4
           path: |
-            Green_Banana_Myanmar_Offline_Native_V1_3_PopSound-debug.apk
+            Green_Banana_Myanmar_Offline_3D_Fixed_V1_4-debug.apk
             SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 30
