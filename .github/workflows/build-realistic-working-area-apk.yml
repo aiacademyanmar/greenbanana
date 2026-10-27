@@ -1,0 +1,131 @@
+name: Build Green Banana Realistic Working Area Native APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'Green_Banana_Realistic_3D_Working_Area_Native_Android_V1_Source.zip'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build & verify full offline realistic 3D APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 65
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Extract and validate original source ZIP
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYTHON'
+          import hashlib, os, zipfile
+          from pathlib import Path
+          source=Path('Green_Banana_Realistic_3D_Working_Area_Native_Android_V1_Source.zip')
+          if not source.is_file():
+              raise SystemExit('ERROR: Upload Green_Banana_Realistic_3D_Working_Area_Native_Android_V1_Source.zip into the repository root, then run this workflow.')
+          digest=hashlib.sha256(source.read_bytes()).hexdigest()
+          expected='c7b58792f2fb03965eb790df91da4bdb49ae74f8495f8e4eb3549beee6222f61'
+          if digest != expected:
+              raise SystemExit('Incorrect source ZIP SHA-256. Download the original project ZIP and upload it unchanged. Got: '+digest)
+          root=Path('realistic-working-area')
+          root.mkdir(exist_ok=True)
+          with zipfile.ZipFile(source) as z:
+              if z.testzip() is not None:
+                  raise SystemExit('Source ZIP CRC failed')
+              for member in z.infolist():
+                  p=Path(member.filename)
+                  if p.is_absolute() or '..' in p.parts:
+                      raise SystemExit('Unsafe ZIP member: '+member.filename)
+              z.extractall(root)
+          assert (root/'app/src/main/assets/site.glb').stat().st_size == 82540224
+          assert (root/'app/src/main/assets/Green_Banana_Waste_to_Value.pdf').is_file()
+          assert (root/'app/src/main/java/asia/aaii/gbm/MainActivity.java').is_file()
+          assert (root/'app/src/main/java/asia/aaii/gbm/PdfActivity.java').is_file()
+          assert (root/'web/main.js').is_file()
+          import struct
+          raw=(root/'app/src/main/assets/site.glb').open('rb').read(12)
+          assert raw[:4]==b'glTF' and struct.unpack('<I',raw[4:8])[0]==2
+          assert struct.unpack('<I',raw[8:12])[0]==82540224
+          print('PASS: original GLB, PDF, Java activities and JS source')
+          PYTHON
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Bundle Three.js + GLTFLoader + OrbitControls for offline WebView
+        working-directory: realistic-working-area/web
+        run: |
+          set -euo pipefail
+          npm install --no-audit --no-fund
+          npm run build
+          test -s ../app/src/main/assets/viewer.js
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle 8.10.2
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Use GitHub Ubuntu Android SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          test -d "$SDK/cmdline-tools/latest/bin"
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+          echo "$SDK/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          "$SDK/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
+
+      - name: Compile realistic working-area APK
+        working-directory: realistic-working-area
+        shell: bash
+        run: |
+          set -o pipefail
+          gradle --no-daemon --stacktrace :app:assembleDebug 2>&1 | tee ../realistic-apk-build.log
+
+      - name: Verify installable APK and embedded offline assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK=realistic-working-area/app/build/outputs/apk/debug/app-debug.apk
+          test -s "$APK"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$APK"
+          unzip -t "$APK" | tail -1
+          unzip -Z1 "$APK" | grep -qx 'assets/site.glb'
+          unzip -Z1 "$APK" | grep -qx 'assets/Green_Banana_Waste_to_Value.pdf'
+          unzip -Z1 "$APK" | grep -qx 'assets/viewer.js'
+          unzip -Z1 "$APK" | grep -qx 'assets/index.html'
+          cp "$APK" Green_Banana_Realistic_Working_Area_V1-debug.apk
+          sha256sum Green_Banana_Realistic_Working_Area_V1-debug.apk > SHA256SUMS.txt
+
+      - name: Publish verified installable APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Green_Banana_Realistic_Working_Area_APK
+          path: |
+            Green_Banana_Realistic_Working_Area_V1-debug.apk
+            SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish Gradle log if build fails
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: GBM_Realistic_Working_Area_Build_Log
+          path: realistic-apk-build.log
+          if-no-files-found: ignore
