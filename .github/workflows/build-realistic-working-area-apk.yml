@@ -6,6 +6,8 @@ on:
     branches: [main]
     paths:
       - 'Green_Banana_Realistic_3D_Working_Area_Native_Android_V1_Source.zip'
+      - 'GBM_REALISTIC_SOURCE_B64/**'
+      - '.github/workflows/build-realistic-working-area-apk.yml'
 
 permissions:
   contents: read
@@ -24,9 +26,16 @@ jobs:
         run: |
           set -euo pipefail
           python3 - <<'PYTHON'
-          import hashlib, os, zipfile
+          import hashlib, os, zipfile, base64
           from pathlib import Path
           source=Path('Green_Banana_Realistic_3D_Working_Area_Native_Android_V1_Source.zip')
+          if not source.exists():
+              chunks=sorted(Path('GBM_REALISTIC_SOURCE_B64').glob('part_*.txt'))
+              if len(chunks) != 61:
+                  raise SystemExit(f'Expected 61 transfer chunks, found {len(chunks)}')
+              joined=''.join(p.read_text().strip() for p in chunks)
+              source.write_bytes(base64.b64decode(joined,validate=True))
+              print('Reconstructed source ZIP:',source.stat().st_size,'bytes')
           if not source.is_file():
               raise SystemExit('ERROR: Upload Green_Banana_Realistic_3D_Working_Area_Native_Android_V1_Source.zip into the repository root, then run this workflow.')
           digest=hashlib.sha256(source.read_bytes()).hexdigest()
